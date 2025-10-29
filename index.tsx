@@ -1,5 +1,6 @@
 const canvas = document.getElementById('canvas') as HTMLCanvasElement;
 const ctx = canvas.getContext('2d');
+const startOverlay = document.getElementById('start-overlay');
 
 let width = canvas.width = window.innerWidth;
 let height = canvas.height = window.innerHeight;
@@ -9,6 +10,51 @@ window.addEventListener('resize', () => {
     height = canvas.height = window.innerHeight;
 });
 
+// --- Audio Setup ---
+let audioCtx: AudioContext;
+let noiseNode: AudioBufferSourceNode;
+let gainNode: GainNode;
+let audioInitialized = false;
+
+function initAudio() {
+    if (audioInitialized) return;
+    audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    
+    // Create white noise buffer
+    const bufferSize = audioCtx.sampleRate * 2; // 2 seconds of noise
+    const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+    const output = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+        output[i] = Math.random() * 2 - 1;
+    }
+
+    // Create a source node for the noise
+    noiseNode = audioCtx.createBufferSource();
+    noiseNode.buffer = buffer;
+    noiseNode.loop = true;
+    
+    // Create a gain node to control volume
+    gainNode = audioCtx.createGain();
+    gainNode.gain.setValueAtTime(0, audioCtx.currentTime);
+
+    // Connect nodes and start
+    noiseNode.connect(gainNode);
+    gainNode.connect(audioCtx.destination);
+    noiseNode.start();
+    
+    audioInitialized = true;
+}
+
+if (startOverlay) {
+    startOverlay.addEventListener('click', () => {
+        initAudio();
+        startOverlay.style.opacity = '0';
+        setTimeout(() => startOverlay.style.display = 'none', 500);
+    }, { once: true });
+}
+
+
+// --- Particle System ---
 const MAX_PARTICLES = 300;
 const particles: Particle[] = [];
 
@@ -21,11 +67,16 @@ class Particle {
     life: number;
     maxLife: number;
     parent: Particle | null;
+    pulseAngle: number;
+    pulseSpeed: number;
+    pulseAmount: number;
 
     constructor(x: number, y: number, parent: Particle | null = null) {
         this.x = x;
         this.y = y;
         this.parent = parent;
+        this.pulseAngle = Math.random() * Math.PI * 2;
+        this.pulseAmount = 0;
 
         if (parent) {
             const angle = Math.atan2(parent.vy, parent.vx) + (Math.random() - 0.5) * 0.9;
@@ -53,28 +104,35 @@ class Particle {
         if (dist > 10) {
             const pullForce = 0.002;
             const swirlForce = 0.015;
-            // A gentle force pulling towards the center to keep it contained
             this.vx -= (dx / dist) * pullForce;
             this.vy -= (dy / dist) * pullForce;
-            // A rotational force to create a swirl
             this.vx += (-dy / dist) * swirlForce;
             this.vy += (dx / dist) * swirlForce;
         }
 
-        // Dampen velocity
         this.vx *= 0.99;
         this.vy *= 0.99;
+
+        // Feedback loop: movement drives pulse speed
+        const speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+        this.pulseSpeed = speed * 0.05;
+        this.pulseAngle += this.pulseSpeed + 0.01;
+        this.pulseAmount = (Math.sin(this.pulseAngle) + 1) / 2; // 0 to 1
     }
 
     draw() {
         ctx.beginPath();
         const lifeRatio = Math.max(0, this.life / this.maxLife);
-        // Hue from autumn tones (30) to vibrant green (120) based on life
-        const hue = 30 + lifeRatio * 90;
+        // Deeper autumn tones to vibrant green
+        const hue = 15 + lifeRatio * 105;
 
-        const gradient = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, this.radius * 3);
+        // Responsive pulsing
+        const currentRadius = this.radius * (1 + this.pulseAmount * 0.6);
+        const gradient = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, currentRadius * 3);
         const opacity = lifeRatio * 0.8 + 0.2;
-        const coreColor = `hsla(${hue}, 100%, 85%, ${opacity})`;
+        
+        // Luminous white core in trails
+        const coreColor = `hsla(${hue}, 100%, 95%, ${opacity})`;
         const mainColor = `hsla(${hue}, 100%, 70%, ${opacity})`;
         const glowColor = `hsla(${hue}, 100%, 70%, 0)`;
 
@@ -83,7 +141,7 @@ class Particle {
         gradient.addColorStop(1, glowColor);
 
         ctx.fillStyle = gradient;
-        ctx.arc(this.x, this.y, this.radius * 3, 0, Math.PI * 2);
+        ctx.arc(this.x, this.y, currentRadius * 3, 0, Math.PI * 2);
         ctx.fill();
     }
 }
@@ -97,7 +155,7 @@ function grow() {
         const parentIndex = Math.floor(Math.random() * particles.length);
         const parent = particles[parentIndex];
         
-        if (parent && parent.life > 50) { // Only grow from healthy parents
+        if (parent && parent.life > 50) {
             const newX = parent.x + (Math.random() - 0.5) * 5;
             const newY = parent.y + (Math.random() - 0.5) * 5;
             
@@ -110,10 +168,13 @@ let frameCount = 0;
 
 function animate() {
     ctx.globalCompositeOperation = 'source-over';
-    ctx.fillStyle = 'rgba(0, 5, 16, 0.15)';
+    // Faint background clear creates trails
+    ctx.fillStyle = 'rgba(0, 5, 16, 0.1)';
     ctx.fillRect(0, 0, width, height);
     
     ctx.globalCompositeOperation = 'lighter';
+
+    let totalActivity = 0;
 
     particles.forEach(p => {
         if (p.parent) {
@@ -121,10 +182,10 @@ function animate() {
             ctx.moveTo(p.parent.x, p.parent.y);
             ctx.lineTo(p.x, p.y);
             
-            const lifeRatio = Math.max(0, p.life / p.maxLife);
-            const hue = 30 + lifeRatio * 90;
-            ctx.strokeStyle = `hsla(${hue}, 100%, 70%, 0.15)`;
-            ctx.lineWidth = 0.7;
+            // Lighter teal trails connecting to the grid, responsive thickness
+            const opacity = 0.1 + p.pulseAmount * 0.2;
+            ctx.strokeStyle = `hsla(180, 100%, 70%, ${opacity})`;
+            ctx.lineWidth = 0.5 + p.pulseAmount * 0.5;
             ctx.stroke();
         }
     });
@@ -134,8 +195,10 @@ function animate() {
         p.update();
         p.draw();
         
+        totalActivity += Math.sqrt(p.vx * p.vx + p.vy * p.vy);
+        
         if (p.life <= 0) {
-             if (i > 0) { // Don't remove the root
+             if (i > 0) {
                 particles.splice(i, 1);
              }
         }
@@ -145,6 +208,12 @@ function animate() {
         grow();
     }
     
+    // Update audio based on system activity
+    if (audioInitialized) {
+        const targetGain = Math.min(0.05, (totalActivity / particles.length) * 0.02);
+        gainNode.gain.linearRampToValueAtTime(targetGain, audioCtx.currentTime + 0.1);
+    }
+
     frameCount++;
     requestAnimationFrame(animate);
 }
