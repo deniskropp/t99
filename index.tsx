@@ -1,3 +1,4 @@
+
 const canvas = document.getElementById('canvas') as HTMLCanvasElement;
 const ctx = canvas.getContext('2d');
 const startOverlay = document.getElementById('start-overlay');
@@ -57,6 +58,7 @@ if (startOverlay) {
 // --- Particle System ---
 const MAX_PARTICLES = 300;
 const particles: Particle[] = [];
+let systemActivity = 0; // A smoothed value from 0 to 1 representing overall system load
 
 class Particle {
     x: number;
@@ -69,14 +71,16 @@ class Particle {
     parent: Particle | null;
     pulseAngle: number;
     pulseSpeed: number;
-    pulseAmount: number;
+    targetPulseAmount: number;
+    currentPulseAmount: number;
 
     constructor(x: number, y: number, parent: Particle | null = null) {
         this.x = x;
         this.y = y;
         this.parent = parent;
         this.pulseAngle = Math.random() * Math.PI * 2;
-        this.pulseAmount = 0;
+        this.targetPulseAmount = 0;
+        this.currentPulseAmount = 0;
 
         if (parent) {
             const angle = Math.atan2(parent.vy, parent.vx) + (Math.random() - 0.5) * 0.9;
@@ -117,7 +121,10 @@ class Particle {
         const speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
         this.pulseSpeed = speed * 0.05;
         this.pulseAngle += this.pulseSpeed + 0.01;
-        this.pulseAmount = (Math.sin(this.pulseAngle) + 1) / 2; // 0 to 1
+        this.targetPulseAmount = (Math.sin(this.pulseAngle) + 1) / 2; // 0 to 1
+
+        // Temporal Distortion / Buffering: eased value
+        this.currentPulseAmount += (this.targetPulseAmount - this.currentPulseAmount) * 0.1;
     }
 
     draw() {
@@ -126,8 +133,8 @@ class Particle {
         // Deeper autumn tones to vibrant green
         const hue = 15 + lifeRatio * 105;
 
-        // Responsive pulsing
-        const currentRadius = this.radius * (1 + this.pulseAmount * 0.6);
+        // Responsive pulsing with lag
+        const currentRadius = this.radius * (1 + this.currentPulseAmount * 0.6);
         const gradient = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, currentRadius * 3);
         const opacity = lifeRatio * 0.8 + 0.2;
         
@@ -168,8 +175,15 @@ let frameCount = 0;
 
 function animate() {
     ctx.globalCompositeOperation = 'source-over';
-    // Faint background clear creates trails
-    ctx.fillStyle = 'rgba(0, 5, 16, 0.1)';
+    
+    // Dynamic Gradient Background based on system activity
+    const bgGradient = ctx.createRadialGradient(width / 2, height / 2, 0, width / 2, height / 2, Math.max(width, height) * 0.8);
+    const hue = 40 + systemActivity * 140; // 40 (ochre) -> 180 (teal)
+    const lightness = 20 + systemActivity * 10; // 20% -> 30%
+    const midColor = `hsla(${hue}, 50%, ${lightness}%, 0.15)`;
+    bgGradient.addColorStop(0, midColor);
+    bgGradient.addColorStop(1, 'rgba(0, 5, 16, 0.1)');
+    ctx.fillStyle = bgGradient;
     ctx.fillRect(0, 0, width, height);
     
     ctx.globalCompositeOperation = 'lighter';
@@ -182,10 +196,10 @@ function animate() {
             ctx.moveTo(p.parent.x, p.parent.y);
             ctx.lineTo(p.x, p.y);
             
-            // Lighter teal trails connecting to the grid, responsive thickness
-            const opacity = 0.1 + p.pulseAmount * 0.2;
+            // Lighter teal trails connecting to the grid, with temporal distortion
+            const opacity = 0.1 + p.currentPulseAmount * 0.2;
             ctx.strokeStyle = `hsla(180, 100%, 70%, ${opacity})`;
-            ctx.lineWidth = 0.5 + p.pulseAmount * 0.5;
+            ctx.lineWidth = 0.5 + p.currentPulseAmount * 0.5;
             ctx.stroke();
         }
     });
@@ -198,20 +212,41 @@ function animate() {
         totalActivity += Math.sqrt(p.vx * p.vx + p.vy * p.vy);
         
         if (p.life <= 0) {
-             if (i > 0) {
+             if (i > 0) { // Keep the core particle
                 particles.splice(i, 1);
              }
         }
     }
     
+    // Draw central core bloom
+    if (particles.length > 0) {
+        const core = particles[0];
+        const bloomRadius = 25 + core.currentPulseAmount * 15;
+        const bloomGradient = ctx.createRadialGradient(core.x, core.y, 0, core.x, core.y, bloomRadius);
+        bloomGradient.addColorStop(0, `hsla(180, 100%, 80%, ${0.1 + core.currentPulseAmount * 0.15})`);
+        bloomGradient.addColorStop(1, 'hsla(180, 100%, 80%, 0)');
+        ctx.fillStyle = bloomGradient;
+        ctx.beginPath();
+        ctx.arc(core.x, core.y, bloomRadius, 0, Math.PI * 2);
+        ctx.fill();
+    }
+    
     if (frameCount % 2 === 0) {
         grow();
     }
+
+    // Smoothly update global system activity
+    const targetActivity = Math.min(1, (totalActivity / particles.length) / 2.5);
+    systemActivity += (targetActivity - systemActivity) * 0.02;
     
     // Update audio based on system activity
     if (audioInitialized) {
-        const targetGain = Math.min(0.05, (totalActivity / particles.length) * 0.02);
+        const targetGain = Math.min(0.05, systemActivity * 0.03);
         gainNode.gain.linearRampToValueAtTime(targetGain, audioCtx.currentTime + 0.1);
+
+        // Modulate pitch with activity
+        const targetPlaybackRate = 1.0 + systemActivity * 0.4; // Range: 1.0 to 1.4
+        noiseNode.playbackRate.linearRampToValueAtTime(targetPlaybackRate, audioCtx.currentTime + 0.1);
     }
 
     frameCount++;
