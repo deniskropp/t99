@@ -12,6 +12,39 @@ window.addEventListener('resize', () => {
     height = canvas.height = window.innerHeight;
 });
 
+// --- Parameters & Controls ---
+let maxParticles = 300;
+let spawnRate = 0.35;
+let velocityScale = 1.0;
+
+const maxParticlesInput = document.getElementById('max-particles') as HTMLInputElement;
+const spawnRateInput = document.getElementById('spawn-rate') as HTMLInputElement;
+const velocityScaleInput = document.getElementById('velocity-scale') as HTMLInputElement;
+const valMaxParticles = document.getElementById('val-max-particles');
+const valSpawnRate = document.getElementById('val-spawn-rate');
+const valVelocityScale = document.getElementById('val-velocity-scale');
+
+if (maxParticlesInput) {
+    maxParticlesInput.addEventListener('input', (e) => {
+        maxParticles = parseInt((e.target as HTMLInputElement).value);
+        if (valMaxParticles) valMaxParticles.innerText = maxParticles.toString();
+    });
+}
+
+if (spawnRateInput) {
+    spawnRateInput.addEventListener('input', (e) => {
+        spawnRate = parseFloat((e.target as HTMLInputElement).value);
+        if (valSpawnRate) valSpawnRate.innerText = spawnRate.toFixed(2);
+    });
+}
+
+if (velocityScaleInput) {
+    velocityScaleInput.addEventListener('input', (e) => {
+        velocityScale = parseFloat((e.target as HTMLInputElement).value);
+        if (valVelocityScale) valVelocityScale.innerText = velocityScale.toFixed(1);
+    });
+}
+
 // --- Audio Setup ---
 let audioCtx: AudioContext;
 let noiseNode: AudioBufferSourceNode;
@@ -57,7 +90,6 @@ if (startOverlay) {
 
 
 // --- Particle System ---
-const MAX_PARTICLES = 300;
 const particles: Particle[] = [];
 let systemActivity = 0; // A smoothed value from 0 to 1 representing overall system load
 
@@ -84,13 +116,14 @@ class Particle {
         this.targetPulseAmount = 0;
         this.currentPulseAmount = 0;
 
+        // Apply velocityScale to initial velocities
         if (parent) {
             const angle = Math.atan2(parent.vy, parent.vx) + (Math.random() - 0.5) * 0.9;
-            this.vx = Math.cos(angle) * 0.7;
-            this.vy = Math.sin(angle) * 0.7;
+            this.vx = Math.cos(angle) * 0.7 * velocityScale;
+            this.vy = Math.sin(angle) * 0.7 * velocityScale;
         } else {
-            this.vx = (Math.random() - 0.5) * 0.5;
-            this.vy = (Math.random() - 0.5) * 0.5;
+            this.vx = (Math.random() - 0.5) * 0.5 * velocityScale;
+            this.vy = (Math.random() - 0.5) * 0.5 * velocityScale;
         }
 
         this.radius = Math.random() * 1.5 + 1;
@@ -185,7 +218,8 @@ function init() {
 }
 
 function grow() {
-    if (particles.length < MAX_PARTICLES && Math.random() < 0.7) {
+    // Uses mutable dynamic parameters: maxParticles, spawnRate
+    if (particles.length < maxParticles && Math.random() < spawnRate) {
         const parentIndex = Math.floor(Math.random() * particles.length);
         const parent = particles[parentIndex];
         
@@ -282,11 +316,16 @@ function animate() {
         ctx.fill();
     }
     
-    if (frameCount % 2 === 0) {
-        grow();
+    // Growth step every frame, rate controlled by random chance in grow()
+    grow();
+
+    // Dynamically prune particles if controls reduce limit
+    if (particles.length > maxParticles) {
+        // Splice from the end (newest) to adhere to limit
+        particles.splice(maxParticles);
     }
 
-    const targetActivity = Math.min(1, (totalActivity / particles.length) / 2.5);
+    const targetActivity = Math.min(1, (totalActivity / Math.max(1, particles.length)) / 2.5);
     systemActivity += (targetActivity - systemActivity) * 0.02;
     
     if (audioInitialized) {

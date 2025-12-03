@@ -26,6 +26,7 @@
             max-width: 500px;
             text-shadow: 0 0 10px rgba(0,0,0,0.7);
             z-index: 10;
+            pointer-events: none;
         }
         h1 {
             margin: 0 0 10px 0;
@@ -55,10 +56,60 @@
             z-index: 100;
             transition: opacity 0.5s ease;
         }
+        #controls {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(0, 5, 16, 0.8);
+            padding: 20px;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(5px);
+            z-index: 50;
+            min-width: 220px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+        }
+        .control-group {
+            margin-bottom: 15px;
+        }
+        .control-group:last-child {
+            margin-bottom: 0;
+        }
+        .control-group label {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.85em;
+            color: rgba(255, 255, 255, 0.8);
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        .control-group input[type="range"] {
+            width: 100%;
+            cursor: pointer;
+            accent-color: hsla(180, 100%, 70%, 1);
+            background: transparent;
+        }
     </style>
 </head>
 <body>
     <div id="start-overlay">Click to begin</div>
+    
+    <div id="controls">
+        <div class="control-group">
+            <label for="max-particles">Max Particles <span id="val-max-particles">300</span></label>
+            <input type="range" id="max-particles" min="50" max="1000" value="300" step="10">
+        </div>
+        <div class="control-group">
+            <label for="spawn-rate">Spawn Rate <span id="val-spawn-rate">0.35</span></label>
+            <input type="range" id="spawn-rate" min="0" max="1" value="0.35" step="0.01">
+        </div>
+        <div class="control-group">
+            <label for="velocity-scale">Velocity <span id="val-velocity-scale">1.0</span></label>
+            <input type="range" id="velocity-scale" min="0.1" max="3.0" value="1.0" step="0.1">
+        </div>
+    </div>
+
     <canvas id="canvas"></canvas>
     <div class="overlay-content">
         <h1>Rooted Growth</h1>
